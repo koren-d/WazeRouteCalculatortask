@@ -16,7 +16,7 @@ class WRCError(Exception):
 
 class WazeRouteCalculator(object):
     """Calculate actual route time and distance with Waze API"""
-
+    cache = {}  # Static attribute for caching
     WAZE_URL = "https://www.waze.com/"
     HEADERS = {
         "User-Agent": "Mozilla/5.0",
@@ -44,6 +44,13 @@ class WazeRouteCalculator(object):
     COORD_MATCH = re.compile(r'^([-+]?)([\d]{1,2})(((\.)(\d+)(,)))(\s*)(([-+]?)([\d]{1,3})((\.)(\d+))?)$')
 
     def __init__(self, start_address, end_address, region='EU', vehicle_type='', avoid_toll_roads=False, avoid_subscription_roads=False, avoid_ferries=False, log_lvl=None):
+        # מאפיין לשמירת לוגים
+        self.travel_logs = {}
+
+        # וודא שהמטמון קיים ברמת המחלקה
+        if not hasattr(WazeRouteCalculator, 'cache'):
+            WazeRouteCalculator.cache = {}  # Static cache attribute
+
         self.log = logging.getLogger(__name__)
         self.log.addHandler(logging.NullHandler())
         if log_lvl:
@@ -214,16 +221,227 @@ class WazeRouteCalculator(object):
         route_distance = [route[1] for route in results.values()]
         self.log.info('Min\tMax\n%.2f\t%.2f minutes\n%.2f\t%.2f km', min(route_time), max(route_time), min(route_distance), max(route_distance))
         return results
-    
+    ######### 
     def calculate_departure_time(self, desired_arrival_time):
-       # Parse the desired arrival time
         arrival_time = datetime.strptime(desired_arrival_time, '%H:%M')
-        
-        # Calculate route information
         route_time, _ = self.calc_route_info()  # route_time is in minutes
-        
-        # Calculate departure time
         departure_time = arrival_time - timedelta(minutes=route_time)
-        
         return departure_time.strftime('%H:%M')
+    
+    def calculate_trip_time(self, locations, desired_arrival_time):
 
+        if len(locations) < 2:
+            raise ValueError("You must provide at least two locations: a start and an end.")
+
+        results = []
+        current_arrival_time = datetime.strptime(desired_arrival_time, '%H:%M')
+
+        # Loop through the locations in reverse order to calculate departure times
+        for i in range(len(locations) - 1, 0, -1):
+            # Create an instance for the current leg of the trip
+            self.__init__(locations[i - 1], locations[i], region=self.region)
+
+            # Calculate travel time for the current leg
+            route_time, _ = self.calc_route_info()  # Get travel time in minutes
+            departure_time = current_arrival_time - timedelta(minutes=route_time)
+
+            # Add results for the current leg
+            results.insert(0, {
+                "from": locations[i - 1],
+                "to": locations[i],
+                "departure_time": departure_time.strftime('%H:%M'),
+                "arrival_time": current_arrival_time.strftime('%H:%M'),
+                "travel_time_minutes": route_time
+            })
+
+            # Update the arrival time for the next leg
+            current_arrival_time = departure_time
+
+        # Calculate total trip time
+        total_trip_time = (datetime.strptime(desired_arrival_time, '%H:%M') - current_arrival_time).total_seconds() / 60
+
+        return {
+            "legs": results,
+            "total_trip_time_minutes": total_trip_time
+        }
+    
+
+
+
+    # def get_cached_route_time(self, start, end):
+    #     """
+    #     Check if there is cached route time for a given start and end location.
+
+    #     :param start: str - Starting location
+    #     :param end: str - Ending location
+    #     :return: float or None - Cached travel time in minutes, or None if no valid cache exists
+    #     """
+    #     route_key = f"{start} -> {end}"
+    #     if route_key in self.cache:
+    #         cache_entry = self.cache[route_key]
+    #         cache_time = datetime.strptime(cache_entry['timestamp'], "%Y-%m-%d %H:%M:%S")
+    #         if datetime.now() - cache_time < timedelta(hours=2):
+    #             # Cache is valid
+    #             print(f"[CACHE HIT] Using cached data for {route_key}")
+    #             return cache_entry['travel_time_minutes']
+    #         else:
+    #             # Cache is outdated
+    #             print(f"[CACHE EXPIRED] Removing outdated cache for {route_key}")
+    #             del self.cache[route_key]
+    #     return None
+
+
+
+
+
+    # def calculate_total_trip_time_with_logs(self, locations):
+    #     """
+    #     Calculate the total trip time for a sequence of destinations and log travel times with caching.
+
+    #     :param locations: list - List of locations in the order [start, stop1, stop2, ..., final_destination]
+    #     :return: dict - Dictionary containing total trip time and a log of travel times with timestamps
+    #     """
+    #     if len(locations) < 2:
+    #         raise ValueError("You must provide at least two locations: a start and an end.")
+
+    #     total_trip_time = 0
+
+    #     # Loop through each pair of consecutive locations
+    #     for i in range(len(locations) - 1):
+    #         start, end = locations[i], locations[i + 1]
+    #         route_key = f"{start} -> {end}"
+
+    #         # Try to get cached route time
+    #         route_time = self.get_cached_route_time(start, end)
+    #         if route_time is not None:
+    #             print(f"[CACHE] Using cached route time for {route_key}: {route_time} minutes")
+    #         else:
+    #             # Query Waze API for new data
+    #             print(f"[API REQUEST] Calculating route time for {route_key}...")
+    #             temp_calculator = WazeRouteCalculator(start, end, region=self.region)
+    #             route_time, _ = temp_calculator.calc_route_info()
+
+    #             # Update cache with new data
+    #             print(f"[CACHE UPDATE] Storing data for {route_key}: {route_time} minutes")
+    #             self.cache[route_key] = {
+    #                 "travel_time_minutes": route_time,
+    #                 "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    #             }
+
+    #         # Add the route time to the total trip time
+    #         total_trip_time += route_time
+
+    #         # Log the travel time with a timestamp
+    #         self.travel_logs[route_key] = {
+    #             "travel_time_minutes": route_time,
+    #             "timestamp": self.cache[route_key]["timestamp"]
+    #         }
+
+    #     return {
+    #         "total_trip_time_minutes": total_trip_time,
+    #         "travel_logs": self.travel_logs
+    #     }
+
+    def get_cached_route_time(self, start, end):
+        """
+        Check if there is cached route time for a given start and end location.
+
+        :param start: str - Starting location
+        :param end: str - Ending location
+        :return: float or None - Cached travel time in minutes, or None if no valid cache exists
+        """
+        # Ensure cache exists
+        if not hasattr(WazeRouteCalculator, 'cache'):
+            WazeRouteCalculator.cache = {}
+
+        route_key = f"{start} -> {end}"
+        if route_key in WazeRouteCalculator.cache:
+            cache_entry = WazeRouteCalculator.cache[route_key]
+            cache_time = datetime.strptime(cache_entry['timestamp'], "%Y-%m-%d %H:%M:%S")
+            if datetime.now() - cache_time < timedelta(minutes=10):
+                # Cache is valid
+                print(f"[CACHE HIT] Using cached data for {route_key}")
+                return cache_entry['travel_time_minutes']
+            else:
+                # Cache is outdated
+                print(f"[CACHE EXPIRED] Removing outdated cache for {route_key}")
+                del WazeRouteCalculator.cache[route_key]
+        return None
+
+    def calculate_total_trip_time_with_logs(self, locations, breaks=None):
+        """
+        Calculate the total trip time for a sequence of destinations and log travel times with caching,
+        including breaks at each stop.
+
+        :param locations: list - List of locations in the order [start, stop1, stop2, ..., final_destination]
+        :param breaks: list - List of break times (in minutes) at each stop. Must have len(locations) - 1 or None.
+        :return: dict - Dictionary containing total trip time and a log of travel times with timestamps
+        """
+        if len(locations) < 2:
+            raise ValueError("You must provide at least two locations: a start and an end.")
+
+        # Validate breaks
+        if breaks is None:
+            breaks = [0] * (len(locations) - 1)  # Default to no breaks
+        elif len(breaks) != len(locations) - 1:
+            raise ValueError("Breaks list must have exactly len(locations) - 1 elements.")
+
+        total_trip_time = 0
+        self.travel_logs = {}  # Reset travel logs for this calculation
+
+        # Loop through each pair of consecutive locations
+        for i in range(len(locations) - 1):
+            start, end = locations[i], locations[i + 1]
+            route_key = f"{start} -> {end}"
+
+            # Try to get cached route time
+            route_time = self.get_cached_route_time(start, end)
+            if route_time is not None:
+                print(f"[CACHE] Using cached route time for {route_key}: {route_time} minutes")
+            else:
+                # Query Waze API for new data
+                print(f"[API REQUEST] Calculating route time for {route_key}...")
+                temp_calculator = WazeRouteCalculator(start, end, region=self.region)
+                route_time, _ = temp_calculator.calc_route_info()
+
+                # Update cache with new data
+                print(f"[CACHE UPDATE] Storing data for {route_key}: {route_time} minutes")
+                WazeRouteCalculator.cache[route_key] = {
+                    "travel_time_minutes": route_time,
+                    "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                }
+
+            # Add the route time and the break time to the total trip time
+            total_trip_time += route_time + breaks[i]
+
+            # Log the travel time and break time with a timestamp
+            self.travel_logs[route_key] = {
+                "travel_time_minutes": route_time,
+                "break_time_minutes": breaks[i],
+                "timestamp": WazeRouteCalculator.cache[route_key]["timestamp"]
+            }
+
+        return {
+            "total_trip_time_minutes": total_trip_time,
+            "travel_logs": self.travel_logs
+        }
+
+
+    
+    def print_logs(self):
+        """
+        Print the travel logs and cache contents in a readable format.
+        """
+        print("Travel Logs:")
+        if not self.travel_logs:
+            print("  No travel logs found.")
+        else:
+            for route, data in self.travel_logs.items():
+                print(f"  {route}: {data['travel_time_minutes']} minutes (calculated at {data['timestamp']})")
+
+        print("\nCache:")
+        if not self.cache:
+            print("  No cache entries found.")
+        else:
+            for route, data in self.cache.items():
+                print(f"  {route}: {data['travel_time_minutes']} minutes (cached at {data['timestamp']})")
