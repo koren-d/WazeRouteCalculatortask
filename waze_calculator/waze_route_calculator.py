@@ -308,13 +308,13 @@ class WazeRouteCalculator(object):
         for i in range(len(locations) - 1):
             start, end = locations[i], locations[i + 1]
             route_time = self.get_dict_route_time(start, end, desired_arrival_time)
+            
+            desired_arrival_datetime = datetime.strptime(desired_arrival_time, "%Y-%m-%d %H:%M:%S")
+            current_departure_time = desired_arrival_datetime - timedelta(minutes=total_trip_time + route_time) 
 
-            # now = datetime.now(pytz.timezone("Asia/Jerusalem")).strftime("%Y-%m-%d %H:%M:%S")
-            # travel_logs[f"{start} -> {end}"] = {
-            #     "travel_time_minutes": route_time,
-            #     "break_time_minutes": breaks[i],
-            #     "timestamp": now
-            # }
+
+            if 7 <= current_departure_time.hour < 10 or 16 <= current_departure_time.hour < 18:  
+                route_time += 30  
             total_trip_time += route_time + breaks[i]
 
         desired_arrival_datetime = datetime.strptime(desired_arrival_time, "%Y-%m-%d %H:%M:%S")
@@ -322,7 +322,6 @@ class WazeRouteCalculator(object):
 
         return {
             "total_trip_time_minutes": total_trip_time,
-            # "travel_logs": travel_logs,
             "recommended_departure_time": recommended_departure_time.strftime("%Y-%m-%d %H:%M:%S")
         }
 
