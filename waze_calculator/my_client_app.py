@@ -1,10 +1,12 @@
 import argparse
-from WazeRouteCalculator import WazeRouteCalculator
+from waze_route_calculator  import WazeRouteCalculator
 from datetime import datetime
 
 def parse_stops(stops_input):
     stops = []
     breaks = []
+    if not stops_input:  
+        return stops, breaks
     items = stops_input.split(",")
 
     for i in range(0, len(items), 2):
@@ -28,7 +30,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--src", required=True)
     parser.add_argument("--dst", required=True)
-    parser.add_argument("--stops", required=True)
+    parser.add_argument("--stops", required=False)
     parser.add_argument("--arrival_time", required=True)
     args = parser.parse_args()
 

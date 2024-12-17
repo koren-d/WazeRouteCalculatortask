@@ -1,2 +1,2 @@
 from .__version__ import __version__
-from .WazeRouteCalculator import *
+from .waze_route_calculator import *

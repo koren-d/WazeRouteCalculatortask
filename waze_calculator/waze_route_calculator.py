@@ -6,6 +6,7 @@ import requests
 import re
 from datetime import datetime, timedelta
 import json
+import pytz
 
 class WRCError(Exception):
     def __init__(self, message):
@@ -258,108 +259,70 @@ class WazeRouteCalculator(object):
     def get_dict_route_time(self, start, end, desired_arrival_time=None):
         if not hasattr(WazeRouteCalculator, 'dict'):
             WazeRouteCalculator.dict = {}
+        start, end = start.lower(), end.lower()
 
-        key = f"{start} -> {end}"
+        now = datetime.now(pytz.timezone("Asia/Jerusalem"))
+        desired_time = datetime.strptime(desired_arrival_time, "%Y-%m-%d %H:%M:%S").replace(tzinfo=pytz.timezone("Asia/Jerusalem")) if desired_arrival_time else now
 
-        if key in WazeRouteCalculator.dict:
-            dict_entry = WazeRouteCalculator.dict[key]
-            dict_time = datetime.strptime(dict_entry['timestamp'], "%Y-%m-%d %H:%M:%S")
+        for existing_key, dict_entry in WazeRouteCalculator.dict.items():
+            if existing_key.lower().startswith(f"{start} -> {end}"):
+                exec_time_str = existing_key.split('@')[1].strip()
+                exec_time = datetime.strptime(exec_time_str, "%Y-%m-%d %H:%M:%S").replace(tzinfo=pytz.timezone("Asia/Jerusalem"))
 
-            within_two_weeks = datetime.now() - dict_time <= timedelta(weeks=2) #first rule
-            # print(f"[DICT DEBUG] Within two weeks: {within_two_weeks}") 
+                days_difference = abs((desired_time.date() - exec_time.date()).days)
+                if days_difference > 14:
+                    continue
 
-            if desired_arrival_time: #second rule
-                desired_arrival_datetime = datetime.strptime(desired_arrival_time, "%Y-%m-%d %H:%M:%S")
-                desired_hour = desired_arrival_datetime.time().hour
-                dict_hour = dict_time.time().hour
+                exec_hour, desired_hour = exec_time.hour, desired_time.hour
+                time_difference_hours = abs(exec_hour - desired_hour)
+                if time_difference_hours > 1:  
+                    continue
 
-                hour_difference = abs((desired_hour - dict_hour + 24) % 24)
-                within_one_hour = hour_difference <= 1
+                print(f"stage: {start} -> {end} from dict")
+                return dict_entry['travel_time_minutes']
 
-                if within_two_weeks and within_one_hour:
-                    return dict_entry['travel_time_minutes']
-                # else:
-                    # print(f"[CACHE MISS] Cache for {key} does not meet the conditions (Within two weeks: {within_two_weeks}, Within one hour: {within_one_hour})")
-            else:
-                # print(f"desired_arrival_time is None or not provided")
-                if within_two_weeks:
-                    return dict_entry['travel_time_minutes']
-                else:
-                    del WazeRouteCalculator.dict[key]
+        print(f"stage: {start} -> {end} from waze server")
+        route_time, _ = WazeRouteCalculator(start, end, region=self.region).calc_route_info()
 
-        temp_calculator = WazeRouteCalculator(start, end, region=self.region)#not in dict
-        route_time, _ = temp_calculator.calc_route_info()
-
-        WazeRouteCalculator.dict[key] = {
-            "travel_time_minutes": route_time,
-            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        }
-        # print(f"[CACHE UPDATE] Storing data for {key}: {route_time} minutes")
-
+        now_str = now.strftime("%Y-%m-%d %H:%M:%S")
+        key = f"{start} -> {end} @ {now_str}"
+        WazeRouteCalculator.dict[key] = {"travel_time_minutes": route_time, "timestamp": now_str}
+        WazeRouteCalculator.save_dict()
         return route_time
 
 
 
 
-
-
-
-
-
-
     def calculate_total_trip_time_with_logs(self, locations, breaks=None, desired_arrival_time=None):
-
         if len(locations) < 2:
-            raise ValueError("You must provide a start and an end")
+            raise ValueError("You must provide at least two locations")
 
         if breaks is None:
             breaks = [0] * (len(locations) - 1)
         elif len(breaks) < len(locations) - 1:
             breaks += [0] * (len(locations) - 1 - len(breaks))
-        elif len(breaks) > len(locations) - 1:
-            raise ValueError("Breaks list must not exceed len(locations) - 1 elements.")
 
-        total_trip_time = 0 
+        total_trip_time = 0
+        # travel_logs = {}
 
         for i in range(len(locations) - 1):
             start, end = locations[i], locations[i + 1]
-            key = f"{start} -> {end}"
-
             route_time = self.get_dict_route_time(start, end, desired_arrival_time)
-            if route_time is None:
-                temp_calculator = WazeRouteCalculator(start, end, region=self.region)
-                route_time, _ = temp_calculator.calc_route_info()
-                WazeRouteCalculator.dict[key] = {
-                    "travel_time_minutes": route_time,
-                    "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                }
 
+            # now = datetime.now(pytz.timezone("Asia/Jerusalem")).strftime("%Y-%m-%d %H:%M:%S")
+            # travel_logs[f"{start} -> {end}"] = {
+            #     "travel_time_minutes": route_time,
+            #     "break_time_minutes": breaks[i],
+            #     "timestamp": now
+            # }
             total_trip_time += route_time + breaks[i]
-
 
         desired_arrival_datetime = datetime.strptime(desired_arrival_time, "%Y-%m-%d %H:%M:%S")
         recommended_departure_time = desired_arrival_datetime - timedelta(minutes=total_trip_time)
 
         return {
             "total_trip_time_minutes": total_trip_time,
-            "travel_logs": self.travel_logs,
+            # "travel_logs": travel_logs,
             "recommended_departure_time": recommended_departure_time.strftime("%Y-%m-%d %H:%M:%S")
         }
-
-
-
-    
-
-
-
-
-    def display_dict(self):
-
-        if not hasattr(WazeRouteCalculator, 'dict') or not WazeRouteCalculator.dict:
-            return
-        for key, dict_entry in WazeRouteCalculator.dict.items():
-            print(f"Route: {key}")
-            print(f"  - Travel Time (minutes): {dict_entry['travel_time_minutes']}")
-            print(f"  - Timestamp: {dict_entry['timestamp']}")
-            print()
 
