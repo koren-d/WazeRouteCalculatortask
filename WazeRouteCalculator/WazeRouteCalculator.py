@@ -5,6 +5,7 @@ import logging
 import requests
 import re
 from datetime import datetime, timedelta
+import json
 
 class WRCError(Exception):
     def __init__(self, message):
@@ -16,7 +17,37 @@ class WRCError(Exception):
 
 class WazeRouteCalculator(object):
     """Calculate actual route time and distance with Waze API"""
-    cache = {}  # Static attribute for caching
+    
+    
+    
+    
+    DICT_FILE = "waze_dict.json"  
+
+    @classmethod
+    def load_dict(cls):
+        try:
+            with open(cls.DICT_FILE, "r") as f:
+                cls.dict = json.load(f)
+            # print(f"[DICT LOADED] Loaded cache from {cls.DICT_FILE}.")
+        except FileNotFoundError:
+            # print(f"[DICT] No dict file found. Starting with an empty dict.")
+            cls.dict = {}
+        except json.JSONDecodeError:
+            # print(f"[DICT ERROR] Could not decode dict file. Starting with an empty dict.")
+            cls.dict = {}
+
+    @classmethod
+    def save_dict(cls):
+        try:
+            with open(cls.DICT_FILE, "w") as f:
+                json.dump(cls.dict, f)
+            # print(f"[DICT SAVED] dict saved to {cls.DICT_FILE}.")
+        except Exception as e:
+            pass
+            # print(f"[DICT ERROR] Could not save dict: {e}")
+
+    
+    dict = {}  # Static attribute for caching
     WAZE_URL = "https://www.waze.com/"
     HEADERS = {
         "User-Agent": "Mozilla/5.0",
@@ -48,8 +79,8 @@ class WazeRouteCalculator(object):
         self.travel_logs = {}
 
         # וודא שהמטמון קיים ברמת המחלקה
-        if not hasattr(WazeRouteCalculator, 'cache'):
-            WazeRouteCalculator.cache = {}  # Static cache attribute
+        if not hasattr(WazeRouteCalculator, 'dict'):
+            WazeRouteCalculator.dict = {}
 
         self.log = logging.getLogger(__name__)
         self.log.addHandler(logging.NullHandler())
@@ -222,110 +253,113 @@ class WazeRouteCalculator(object):
         self.log.info('Min\tMax\n%.2f\t%.2f minutes\n%.2f\t%.2f km', min(route_time), max(route_time), min(route_distance), max(route_distance))
         return results
     ######### 
-    def calculate_departure_time(self, desired_arrival_time):
-        arrival_time = datetime.strptime(desired_arrival_time, '%H:%M')
-        route_time, _ = self.calc_route_info()  # route_time is in minutes
-        departure_time = arrival_time - timedelta(minutes=route_time)
-        return departure_time.strftime('%H:%M')
-    
-    def calculate_trip_time(self, locations, desired_arrival_time):
 
-        if len(locations) < 2:
-            raise ValueError("You must provide at least two locations: a start and an end.")
 
-        results = []
-        current_arrival_time = datetime.strptime(desired_arrival_time, '%H:%M')
+    def get_dict_route_time(self, start, end, desired_arrival_time=None):
+        if not hasattr(WazeRouteCalculator, 'dict'):
+            WazeRouteCalculator.dict = {}
 
-        # Loop through the locations in reverse order to calculate departure times
-        for i in range(len(locations) - 1, 0, -1):
-            # Create an instance for the current leg of the trip
-            self.__init__(locations[i - 1], locations[i], region=self.region)
+        key = f"{start} -> {end}"
 
-            # Calculate travel time for the current leg
-            route_time, _ = self.calc_route_info()  # Get travel time in minutes
-            departure_time = current_arrival_time - timedelta(minutes=route_time)
+        if key in WazeRouteCalculator.dict:
+            dict_entry = WazeRouteCalculator.dict[key]
+            dict_time = datetime.strptime(dict_entry['timestamp'], "%Y-%m-%d %H:%M:%S")
 
-            # Add results for the current leg
-            results.insert(0, {
-                "from": locations[i - 1],
-                "to": locations[i],
-                "departure_time": departure_time.strftime('%H:%M'),
-                "arrival_time": current_arrival_time.strftime('%H:%M'),
-                "travel_time_minutes": route_time
-            })
+            within_two_weeks = datetime.now() - dict_time <= timedelta(weeks=2) #first rule
+            # print(f"[DICT DEBUG] Within two weeks: {within_two_weeks}") 
 
-            # Update the arrival time for the next leg
-            current_arrival_time = departure_time
+            if desired_arrival_time: #second rule
+                desired_arrival_datetime = datetime.strptime(desired_arrival_time, "%Y-%m-%d %H:%M:%S")
+                desired_hour = desired_arrival_datetime.time().hour
+                dict_hour = dict_time.time().hour
 
-        # Calculate total trip time
-        total_trip_time = (datetime.strptime(desired_arrival_time, '%H:%M') - current_arrival_time).total_seconds() / 60
+                hour_difference = abs((desired_hour - dict_hour + 24) % 24)
+                within_one_hour = hour_difference <= 1
 
-        return {
-            "legs": results,
-            "total_trip_time_minutes": total_trip_time
-        }
-    
-
-    def get_cached_route_time(self, start, end):
-
-        if not hasattr(WazeRouteCalculator, 'cache'):
-            WazeRouteCalculator.cache = {}
-
-        route_key = f"{start} -> {end}"
-        if route_key in WazeRouteCalculator.cache:
-            cache_entry = WazeRouteCalculator.cache[route_key]
-            cache_time = datetime.strptime(cache_entry['timestamp'], "%Y-%m-%d %H:%M:%S")
-            if datetime.now() - cache_time < timedelta(minutes=10):
-                print(f"[CACHE HIT] Using cached data for {route_key}")
-                return cache_entry['travel_time_minutes']
+                if within_two_weeks and within_one_hour:
+                    return dict_entry['travel_time_minutes']
+                # else:
+                    # print(f"[CACHE MISS] Cache for {key} does not meet the conditions (Within two weeks: {within_two_weeks}, Within one hour: {within_one_hour})")
             else:
-                print(f"[CACHE EXPIRED] Removing outdated cache for {route_key}")
-                del WazeRouteCalculator.cache[route_key]
-        return None
+                # print(f"desired_arrival_time is None or not provided")
+                if within_two_weeks:
+                    return dict_entry['travel_time_minutes']
+                else:
+                    del WazeRouteCalculator.dict[key]
 
-    def calculate_total_trip_time_with_logs(self, locations, breaks=None):
+        temp_calculator = WazeRouteCalculator(start, end, region=self.region)#not in dict
+        route_time, _ = temp_calculator.calc_route_info()
+
+        WazeRouteCalculator.dict[key] = {
+            "travel_time_minutes": route_time,
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
+        # print(f"[CACHE UPDATE] Storing data for {key}: {route_time} minutes")
+
+        return route_time
+
+
+
+
+
+
+
+
+
+
+    def calculate_total_trip_time_with_logs(self, locations, breaks=None, desired_arrival_time=None):
 
         if len(locations) < 2:
-            raise ValueError("You must provide at least two locations: a start and an end.")
+            raise ValueError("You must provide a start and an end")
 
         if breaks is None:
             breaks = [0] * (len(locations) - 1)
-        elif len(breaks) != len(locations) - 1:
-            raise ValueError("Breaks list must have exactly len(locations) - 1 elements.")
+        elif len(breaks) < len(locations) - 1:
+            breaks += [0] * (len(locations) - 1 - len(breaks))
+        elif len(breaks) > len(locations) - 1:
+            raise ValueError("Breaks list must not exceed len(locations) - 1 elements.")
 
-        total_trip_time = 0
-        self.travel_logs = {}
+        total_trip_time = 0 
 
         for i in range(len(locations) - 1):
             start, end = locations[i], locations[i + 1]
-            route_key = f"{start} -> {end}"
+            key = f"{start} -> {end}"
 
-            route_time = self.get_cached_route_time(start, end)
-            if route_time is not None:
-                print(f"[CACHE] Using cached route time for {route_key}: {route_time} minutes")
-            else:
-
-                print(f"[API REQUEST] Calculating route time for {route_key}...")
+            route_time = self.get_dict_route_time(start, end, desired_arrival_time)
+            if route_time is None:
                 temp_calculator = WazeRouteCalculator(start, end, region=self.region)
                 route_time, _ = temp_calculator.calc_route_info()
-                print(f"[CACHE UPDATE] Storing data for {route_key}: {route_time} minutes")
-                WazeRouteCalculator.cache[route_key] = {
+                WazeRouteCalculator.dict[key] = {
                     "travel_time_minutes": route_time,
                     "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 }
 
             total_trip_time += route_time + breaks[i]
 
-            self.travel_logs[route_key] = {
-                "travel_time_minutes": route_time,
-                "break_time_minutes": breaks[i],
-                "timestamp": WazeRouteCalculator.cache[route_key]["timestamp"]
-            }
+
+        desired_arrival_datetime = datetime.strptime(desired_arrival_time, "%Y-%m-%d %H:%M:%S")
+        recommended_departure_time = desired_arrival_datetime - timedelta(minutes=total_trip_time)
 
         return {
             "total_trip_time_minutes": total_trip_time,
-            "travel_logs": self.travel_logs
+            "travel_logs": self.travel_logs,
+            "recommended_departure_time": recommended_departure_time.strftime("%Y-%m-%d %H:%M:%S")
         }
 
 
+
     
+
+
+
+
+    def display_dict(self):
+
+        if not hasattr(WazeRouteCalculator, 'dict') or not WazeRouteCalculator.dict:
+            return
+        for key, dict_entry in WazeRouteCalculator.dict.items():
+            print(f"Route: {key}")
+            print(f"  - Travel Time (minutes): {dict_entry['travel_time_minutes']}")
+            print(f"  - Timestamp: {dict_entry['timestamp']}")
+            print()
+
