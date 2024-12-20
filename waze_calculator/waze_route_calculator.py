@@ -275,11 +275,9 @@ class WazeRouteCalculator(object):
 
         desired_time = datetime.strptime(desired_arrival_time, "%Y-%m-%d %H:%M:%S").replace(tzinfo=pytz.timezone("Asia/Jerusalem"))
 
-        # חישוב time_delta
         now = datetime.now(pytz.timezone("Asia/Jerusalem"))
-        time_delta = int((desired_time - now).total_seconds() / 60)  # time_delta בדקות
+        time_delta = int((desired_time - now).total_seconds() / 60)  
 
-        # חיפוש במילון קיים
         for existing_key, dict_entry in WazeRouteCalculator.dict.items():
             if existing_key.lower().startswith(f"{start} -> {end}"):
                 exec_time_str = existing_key.split('@')[1].strip()
@@ -288,28 +286,22 @@ class WazeRouteCalculator(object):
                     print(f"stage: {start} -> {end} from dict")
                     return dict_entry['travel_time_minutes']
 
-        # שליפת נתונים משרת Waze
         print(f"stage: {start} -> {end} from waze server")
         route_data = WazeRouteCalculator(start, end, region=self.region).get_route(npaths=1, time_delta=time_delta)
 
-        # חישוב זמן הנסיעה
         route_time = None
         if 'results' in route_data:
-            route_time = sum(segment.get('crossTime', 0) for segment in route_data['results']) / 60.0  # זמן בדקות
+            route_time = sum(segment.get('crossTime', 0) for segment in route_data['results']) / 60.0  
         elif 'totalRouteTimeWithoutMl' in route_data:
-            route_time = route_data['totalRouteTimeWithoutMl'] / 60.0  # זמן בדקות
+            route_time = route_data['totalRouteTimeWithoutMl'] / 60.0  
         else:
             raise ValueError("Unexpected route data format returned from Waze")
 
-        # שמירת המידע במילון
         desired_time_str = desired_time.strftime("%Y-%m-%d %H:%M:%S")
         key = f"{start} -> {end} @ {desired_time_str}"
         WazeRouteCalculator.dict[key] = {"travel_time_minutes": route_time, "timestamp": desired_time_str}
         WazeRouteCalculator.save_dict()
         return route_time
-
-
-
 
 
     def calculate_total_trip_time(self, locations, breaks=None, desired_arrival_time=None):
