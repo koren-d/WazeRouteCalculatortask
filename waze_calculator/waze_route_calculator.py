@@ -282,7 +282,9 @@ class WazeRouteCalculator(object):
             if existing_key.lower().startswith(f"{start} -> {end}"):
                 exec_time_str = existing_key.split('@')[1].strip()
                 exec_time = datetime.strptime(exec_time_str, "%Y-%m-%d %H:%M:%S").replace(tzinfo=pytz.timezone("Asia/Jerusalem"))
-                if abs(exec_time.hour - desired_time.hour) <= 1:  
+                
+                time_difference_minutes = abs((exec_time - desired_time).total_seconds() / 60)
+                if time_difference_minutes <= 60:
                     print(f"stage: {start} -> {end} from dict")
                     return dict_entry['travel_time_minutes']
 
@@ -291,7 +293,7 @@ class WazeRouteCalculator(object):
 
         route_time = None
         if 'results' in route_data:
-            route_time = sum(segment.get('crossTime', 0) for segment in route_data['results']) / 60.0  
+            route_time = sum(segment.get('crossTime') for segment in route_data['results']) / 60.0  
         elif 'totalRouteTimeWithoutMl' in route_data:
             route_time = route_data['totalRouteTimeWithoutMl'] / 60.0  
         else:
