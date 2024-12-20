@@ -48,7 +48,7 @@ class WazeRouteCalculator(object):
             # print(f"[DICT ERROR] Could not save dict: {e}")
 
     
-    dict = {}  # Static attribute for caching
+    dict = {}  
     WAZE_URL = "https://www.waze.com/"
     HEADERS = {
         "User-Agent": "Mozilla/5.0",
