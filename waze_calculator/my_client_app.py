@@ -42,7 +42,7 @@ def main():
     locations = [src] + stops + [dst]
 
     waze_calculator = WazeRouteCalculator(locations[0], locations[1], region="IL")
-    trip_data = waze_calculator.calculate_total_trip_time_with_logs(locations, breaks, desired_arrival_time)
+    trip_data = waze_calculator.calculate_total_trip_time(locations, breaks, desired_arrival_time)
 
     departure_time = datetime.strptime(trip_data['recommended_departure_time'], "%Y-%m-%d %H:%M:%S").strftime("%H:%M")
     arrival_time = datetime.strptime(desired_arrival_time, "%Y-%m-%d %H:%M:%S").strftime("%H:%M")
