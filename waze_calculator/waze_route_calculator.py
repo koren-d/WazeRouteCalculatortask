@@ -46,9 +46,26 @@ class WazeRouteCalculator(object):
         except Exception as e:
             pass
             # print(f"[DICT ERROR] Could not save dict: {e}")
+    
+    @classmethod
+    def _clean_old_entries(cls):
+        now = datetime.now(pytz.timezone("Asia/Jerusalem"))
+        keys_to_delete = []
+
+        for key, value in cls.dict.items():
+            try:
+                timestamp_str = value.get("timestamp", "")
+                entry_date = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S").replace(tzinfo=pytz.timezone("Asia/Jerusalem"))
+                if (now - entry_date).days > 14:
+                    keys_to_delete.append(key)
+            except Exception as e:
+                print(f"[CACHE CLEAN ERROR] Could not parse timestamp for key {key}: {e}")
+
+        for key in keys_to_delete:
+            del cls.dict[key]
 
     
-    dict = {}  # Static attribute for caching
+    dict = {}  
     WAZE_URL = "https://www.waze.com/"
     HEADERS = {
         "User-Agent": "Mozilla/5.0",
@@ -76,10 +93,8 @@ class WazeRouteCalculator(object):
     COORD_MATCH = re.compile(r'^([-+]?)([\d]{1,2})(((\.)(\d+)(,)))(\s*)(([-+]?)([\d]{1,3})((\.)(\d+))?)$')
 
     def __init__(self, start_address, end_address, region='EU', vehicle_type='', avoid_toll_roads=False, avoid_subscription_roads=False, avoid_ferries=False, log_lvl=None):
-        # מאפיין לשמירת לוגים
         self.travel_logs = {}
 
-        # וודא שהמטמון קיים ברמת המחלקה
         if not hasattr(WazeRouteCalculator, 'dict'):
             WazeRouteCalculator.dict = {}
 
@@ -268,10 +283,6 @@ class WazeRouteCalculator(object):
             if existing_key.lower().startswith(f"{start} -> {end}"):
                 exec_time_str = existing_key.split('@')[1].strip()
                 exec_time = datetime.strptime(exec_time_str, "%Y-%m-%d %H:%M:%S").replace(tzinfo=pytz.timezone("Asia/Jerusalem"))
-
-                days_difference = abs((desired_time.date() - exec_time.date()).days)
-                if days_difference > 14:
-                    continue
 
                 exec_hour, desired_hour = exec_time.hour, desired_time.hour
                 time_difference_hours = abs(exec_hour - desired_hour)
