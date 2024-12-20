@@ -33,4 +33,5 @@ Calculate the optimal departure time for a trip without intermediate stops:
 ```bash
 C:\Users\koren\WazeRouteCalculatortask\waze_calculator>python my_client_app.py --src ariel --dst tel-aviv --arrival_time 14:46
 ```
+
 Leave ariel at 14:00 to reach tel-aviv by 14:46.
