@@ -76,10 +76,8 @@ class WazeRouteCalculator(object):
     COORD_MATCH = re.compile(r'^([-+]?)([\d]{1,2})(((\.)(\d+)(,)))(\s*)(([-+]?)([\d]{1,3})((\.)(\d+))?)$')
 
     def __init__(self, start_address, end_address, region='EU', vehicle_type='', avoid_toll_roads=False, avoid_subscription_roads=False, avoid_ferries=False, log_lvl=None):
-        # מאפיין לשמירת לוגים
         self.travel_logs = {}
 
-        # וודא שהמטמון קיים ברמת המחלקה
         if not hasattr(WazeRouteCalculator, 'dict'):
             WazeRouteCalculator.dict = {}
 
