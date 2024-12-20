@@ -29,12 +29,9 @@ class WazeRouteCalculator(object):
         try:
             with open(cls.DICT_FILE, "r") as f:
                 cls.dict = json.load(f)
-            # print(f"[DICT LOADED] Loaded cache from {cls.DICT_FILE}.")
         except FileNotFoundError:
-            # print(f"[DICT] No dict file found. Starting with an empty dict.")
             cls.dict = {}
         except json.JSONDecodeError:
-            # print(f"[DICT ERROR] Could not decode dict file. Starting with an empty dict.")
             cls.dict = {}
 
     @classmethod
@@ -42,10 +39,8 @@ class WazeRouteCalculator(object):
         try:
             with open(cls.DICT_FILE, "w") as f:
                 json.dump(cls.dict, f)
-            # print(f"[DICT SAVED] dict saved to {cls.DICT_FILE}.")
         except Exception as e:
             pass
-            # print(f"[DICT ERROR] Could not save dict: {e}")
     
     @classmethod
     def _clean_old_entries(cls):
@@ -59,7 +54,7 @@ class WazeRouteCalculator(object):
                 if (now - entry_date).days > 14:
                     keys_to_delete.append(key)
             except Exception as e:
-                print(f"[CACHE CLEAN ERROR] Could not parse timestamp for key {key}: {e}")
+                print(f"ould not parse timestamp ")
 
         for key in keys_to_delete:
             del cls.dict[key]
@@ -270,41 +265,54 @@ class WazeRouteCalculator(object):
         return results
     ######### 
 
-
     def get_dict_route_time(self, start, end, desired_arrival_time=None):
         if not hasattr(WazeRouteCalculator, 'dict'):
             WazeRouteCalculator.dict = {}
         start, end = start.lower(), end.lower()
 
-        now = datetime.now(pytz.timezone("Asia/Jerusalem"))
-        desired_time = datetime.strptime(desired_arrival_time, "%Y-%m-%d %H:%M:%S").replace(tzinfo=pytz.timezone("Asia/Jerusalem")) if desired_arrival_time else now
+        if not desired_arrival_time:
+            raise ValueError("You must provide a desired arrival time")
 
+        desired_time = datetime.strptime(desired_arrival_time, "%Y-%m-%d %H:%M:%S").replace(tzinfo=pytz.timezone("Asia/Jerusalem"))
+
+        # חישוב time_delta
+        now = datetime.now(pytz.timezone("Asia/Jerusalem"))
+        time_delta = int((desired_time - now).total_seconds() / 60)  # time_delta בדקות
+
+        # חיפוש במילון קיים
         for existing_key, dict_entry in WazeRouteCalculator.dict.items():
             if existing_key.lower().startswith(f"{start} -> {end}"):
                 exec_time_str = existing_key.split('@')[1].strip()
                 exec_time = datetime.strptime(exec_time_str, "%Y-%m-%d %H:%M:%S").replace(tzinfo=pytz.timezone("Asia/Jerusalem"))
+                if abs(exec_time.hour - desired_time.hour) <= 1:  
+                    print(f"stage: {start} -> {end} from dict")
+                    return dict_entry['travel_time_minutes']
 
-                exec_hour, desired_hour = exec_time.hour, desired_time.hour
-                time_difference_hours = abs(exec_hour - desired_hour)
-                if time_difference_hours > 1:  
-                    continue
-
-                print(f"stage: {start} -> {end} from dict")
-                return dict_entry['travel_time_minutes']
-
+        # שליפת נתונים משרת Waze
         print(f"stage: {start} -> {end} from waze server")
-        route_time, _ = WazeRouteCalculator(start, end, region=self.region).calc_route_info()
+        route_data = WazeRouteCalculator(start, end, region=self.region).get_route(npaths=1, time_delta=time_delta)
 
-        now_str = now.strftime("%Y-%m-%d %H:%M:%S")
-        key = f"{start} -> {end} @ {now_str}"
-        WazeRouteCalculator.dict[key] = {"travel_time_minutes": route_time, "timestamp": now_str}
+        # חישוב זמן הנסיעה
+        route_time = None
+        if 'results' in route_data:
+            route_time = sum(segment.get('crossTime', 0) for segment in route_data['results']) / 60.0  # זמן בדקות
+        elif 'totalRouteTimeWithoutMl' in route_data:
+            route_time = route_data['totalRouteTimeWithoutMl'] / 60.0  # זמן בדקות
+        else:
+            raise ValueError("Unexpected route data format returned from Waze")
+
+        # שמירת המידע במילון
+        desired_time_str = desired_time.strftime("%Y-%m-%d %H:%M:%S")
+        key = f"{start} -> {end} @ {desired_time_str}"
+        WazeRouteCalculator.dict[key] = {"travel_time_minutes": route_time, "timestamp": desired_time_str}
         WazeRouteCalculator.save_dict()
         return route_time
 
 
 
 
-    def calculate_total_trip_time_with_logs(self, locations, breaks=None, desired_arrival_time=None):
+
+    def calculate_total_trip_time(self, locations, breaks=None, desired_arrival_time=None):
         if len(locations) < 2:
             raise ValueError("You must provide at least two locations")
 
@@ -334,4 +342,3 @@ class WazeRouteCalculator(object):
             "total_trip_time_minutes": total_trip_time,
             "recommended_departure_time": recommended_departure_time.strftime("%Y-%m-%d %H:%M:%S")
         }
-
