@@ -303,7 +303,6 @@ class WazeRouteCalculator(object):
             breaks += [0] * (len(locations) - 1 - len(breaks))
 
         total_trip_time = 0
-        # travel_logs = {}
 
         for i in range(len(locations) - 1):
             start, end = locations[i], locations[i + 1]
